@@ -1,0 +1,528 @@
+---
+title: " Has collaboration/featuring become a must to hit Billboard Top 100?"
+author: "Jeesung Ahn"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    highlight: espresso
+    number_sections: yes
+    theme: united
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+
+* Research question
+* More and more artists are releasing songs in collaboration with other artists. I asked whether this trend is represented in the data. Top 100 artists, do they sing alone or collaborate? 
+* Data was extracted from kaggle (link)
+* Data descriptions
+- 1958~2021
+
+```{r setup, include=FALSE,message=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(viridis)
+library(hrbrthemes)
+library(plotly)
+library(stringr)
+```
+
+# Data Cleaning & Exploratory Data Analysis 
+* Notes:
+* figure out how collaborations/featuring is indicated in the artist name
+* upon exploratory analysis, featuring is indicated as one of the followings: 
+
+- A Featuring B | A Featuring B & C | A Featuring B, C & D | A Featuring B & C & D |A Featuring A Or B
+- A Feat. B | A Feat. B & C
+- A & B | A , B & C
+- A With B | A With B & C
+- A X B X C | A X B | A x B
+
+* maximum number of featurings 
+- 9 = Costa Rica by Dreamville and 9 more artists (2019)
+* Record of Billboard Top100 hits from 1958-08-04 to 2021-11-06
+
+* parse out artist names 
+* caveat
+* 1) In the 1950s and 1960s, there were lots of vocal groups and bands that's called "A and B", "A & B" (e.g., James Brown And The Famous Flames; Wade Flemons and the Newcomers; Robert & Johnny) --should be considered as one artist rather than collaboration
+* 2) artists that should be treated with caution: Lil Nas X & B; Silk Sonic (Bruno Mars & Anderson .Paak)
+
+```{r, include=FALSE,echo=FALSE}
+
+bb_df<-read.csv('music/billboard_top100_history.csv') # read data
+bb_df=bb_df %>% mutate(year=str_split_i(date,"-",1)) # create 'Year' column
+
+## Year
+# first date recorded: 1958-08-04
+# most recent date recorded: 2021-11-06
+print(paste0('Record of Billboard Top100 hits from ', min(bb_df$date), ' to ', max(bb_df$date))) 
+
+## Artist
+# figure out how 'featuring' is shown in 'artist' column
+head(bb_df,10)
+
+# find the max number of featurings
+temp=bb_df %>%
+  mutate(artist1=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",1),
+         artist2=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",2),
+         artist3=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",3),
+         artist4=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",4),
+         artist5=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",5),
+         artist6=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",6),
+         artist7=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",7),
+         artist8=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",8),
+         artist9=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",9),
+         artist10=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",10)) %>% filter(is.na(artist8)==FALSE) 
+remove(temp)
+# max number 9: Costa Rica by Dreamville featuring 9 artists	(2019)
+# followed by 2 songs with 7 featurings = Champions by Kanye West and 7 more (2016) ; Out Here Grindin by DJ Khaled and 7 more (2008)
+
+
+bb_df_cleaned=bb_df %>%
+  mutate(artist1=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",1),
+         artist2=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",2),
+         artist3=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",3),
+         artist4=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",4),
+         artist5=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",5),
+         artist6=str_split_i(artist, " Featuring | & |, | Feat.| With | X | x | Or | X & ",6))
+
+# number of artists on one song (max 5)
+bb_df_cleaned=bb_df_cleaned %>% 
+  mutate(artist_number=ifelse(is.na(artist2),1,
+                              ifelse(is.na(artist3),2,
+                                     ifelse(is.na(artist4),3,
+                                            ifelse(is.na(artist5),4,
+                                                   ifelse(is.na(artist6),5,6)))))) # 6 means 6 or more artists
+
+# alone vs. multiple artists (binary coding: alone 0 vs. multiple 1) 
+bb_df_cleaned=bb_df_cleaned %>% mutate(collab_or_not = ifelse(artist_number>=2,1,0))
+
+
+```
+
+# How has the collaboration trend changed over time?
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+line_df<-bb_df_cleaned %>% group_by(year,artist_number) %>%
+  count() %>%
+  ungroup() %>% group_by(year) %>%
+  mutate(perc=`n`/sum(`n`)) %>%  mutate(percentage=round(perc*100,1))
+
+line_df %>% ggplot(aes(x=year,y=percentage,group=factor(artist_number),color=factor(artist_number)))+geom_line()+
+    scale_color_viridis(discrete = TRUE) +
+  scale_x_discrete(name="Year",breaks=seq(1958,2021,5)) + theme_ipsum()+ labs(col="Number of Artists")+labs(title="Billboard Top100 Hits: Number of Artists on One Song")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+#tmp<-line_df %>% mutate(artist_number2=artist_number)
+# line_df %>%
+#  ggplot(aes(x=year, y=percentage,group=1)) +
+#    geom_line( data=tmp %>% dplyr::select(-artist_number), aes(group=artist_number2), color="grey", size=0.5, alpha=0.5) + #geom_line(aes(color=artist_number2), color="#69b3a2", size=1.2 )+
+#    scale_color_viridis() +
+#  scale_x_discrete(name="Year",breaks=seq(1958,2021,3))+
+#    theme_ipsum() +
+#    theme(
+#      legend.position="none",
+#      plot.title = element_text(size=14),
+#      panel.grid = element_blank()
+#    ) +
+#    ggtitle("A spaghetti chart of baby names popularity") +
+#    facet_wrap(~artist_number)
+
+```
+
+## Yearly Trend at a Glance {.tabset}
+
+* Significantly less songs are released by single artist 
+* x axis and y axis 
+* Interactive plot
+* Caveat:
+* total number of songs are different per year; used percentage instead of number to plot 
+
+### Single artist
+```{r,warning=FALSE, message=FALSE}
+
+# Single artist 
+# summary(lm(percentage~as.numeric(year),line_df %>% filter(artist_number==1)))
+
+fig<-ggplot(line_df%>% filter(artist_number==1) ,aes(x=as.numeric(year),y=percentage))+
+  geom_point(colour=5,shape=18,size=2)+
+  geom_smooth(method=lm,se=TRUE,colour=6,alpha=0.2) +theme_minimal() +
+  labs(x="Year",y="Percentage of Songs (%)", title="Billboard Top100 Hits: Single Artist") +
+  theme(plot.title = element_text(hjust = 0.5))+scale_x_discrete(breaks=c(1958,2021))
+
+ggplotly(fig) 
+# summary(lm(percentage~as.numeric(year),line_df %>% filter(artist_number==1)))  # recently, significantly less top 100 hits are released by single artist
+```
+
+```{r,warning=FALSE, message=FALSE}
+
+ggplot(data=line_df %>% filter(artist_number==1), aes(x=year,y=percentage,group=1))+
+  geom_line(colour=5,size=2)+
+  scale_x_discrete(name="Year",breaks=seq(1958,2021,3))+
+  scale_y_continuous(name="Percentage of Songs (%)",breaks=seq(55,100,5)) + # Line type
+  theme_minimal()
+
+# ggplot(bb_df_cleaned %>% filter(artist_number==1),aes(x=as.numeric(year)))+ geom_histogram(colour="black", fill="white")+
+# geom_density(aes(y=..count..), alpha=.2, fill="#FF6666",bw=1)  
+
+```
+
+### Featuring 1 artist
+```{r,warning=FALSE, message=FALSE}
+# summary(lm(percentage~as.numeric(year),line_df %>% filter(artist_number==2)))  # recently, significantly more top 100 hits feature 1 artist (statistically significant at P < .000)
+
+fig2<-ggplot(line_df%>% filter(artist_number==2) ,aes(x=as.numeric(year),y=percentage))+
+  geom_point(colour="996",shape=18,size=2)+
+  geom_smooth(method=lm,se=TRUE,colour=6,size=2,alpha=0.2)+
+  scale_x_discrete(breaks=c(1958,2021))+
+  theme_minimal() +
+  labs(x="Year",y="Percentage of Songs (%)", title="Billboard Top100 Hits: Featuring 1 Artist") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(fig2)
+```
+
+```{r,warning=FALSE, message=FALSE}
+
+ggplot(data=line_df %>% filter(artist_number==2), aes(x=year,y=percentage,group=1))+
+  geom_line(colour="996",size=2)+
+  scale_x_discrete(name="Year",breaks=seq(1958,2021,3))+
+  scale_y_continuous(name="Percentage of Songs (%)",breaks=seq(0,100,5))+
+  geom_area(fill="996",alpha=0.5)+
+  theme_minimal()
+```
+
+### Featuring 2 artists
+```{r,warning=FALSE, message=FALSE}
+# summary(lm(percentage~as.numeric(year),line_df %>% filter(artist_number==3))) # recently, significantly more top 100 hits feature 2 artists (statistically significant at P < .000)
+
+fig3<-ggplot(line_df%>% filter(artist_number==3) ,aes(x=as.numeric(year),y=percentage))+
+  geom_point(colour="#14701D",shape=18,size=2)+
+  geom_smooth(method=lm,se=TRUE,colour=6,size=2,alpha=0.2) +theme_minimal() +
+  labs(x="Year",y="Percentage of Songs (%)", title="Billboard Top100 Hits: Featuring 2 Artists") +
+  theme(plot.title = element_text(hjust = 0.5))+scale_x_discrete(breaks=c(1958,2021))
+
+ggplotly(fig3)
+
+```
+
+```{r,warning=FALSE, message=FALSE}
+
+ggplot(data=line_df %>% filter(artist_number==3), aes(x=year,y=percentage,group=1))+
+  geom_line(colour="#14701D",size=2)+
+  scale_x_discrete(name="Year",breaks=seq(1958,2021,3))+
+  scale_y_continuous(name="Percentage of Songs (%)",breaks=seq(0,100,5))+
+  geom_area(fill="#14701D",alpha=0.5)+
+  theme_minimal()
+```
+
+### Featuring 3 artists
+```{r,warning=FALSE, message=FALSE}
+# summary(lm(percentage~as.numeric(year),line_df %>% filter(artist_number==4))) # recently,significantly more top 100 hits feature 3 artists (statistically significant at P < .000)
+
+fig4<-ggplot(line_df%>% filter(artist_number==4) ,aes(x=as.numeric(year),y=percentage))+
+  geom_point(colour="#8618B5",shape=18,size=2)+
+  scale_x_discrete(breaks=c(1958,2021))+
+  geom_smooth(method=lm,se=TRUE,colour=6,size=2,alpha=0.1) +
+  theme_minimal() +
+  labs(x="Year",y="Percentage of Songs (%)", title="Billboard Top100 Hits: Featuring 3 Artists") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(fig4)
+
+```
+
+```{r,warning=FALSE, message=FALSE}
+
+ggplot(data=line_df %>% filter(artist_number==4), aes(x=year,y=percentage,group=1))+
+  geom_line(colour="#8618B5",size=2)+
+  scale_x_discrete(name="Year",breaks=seq(1958,2021,3))+
+  scale_y_continuous(name="Percentage of Songs (%)",breaks=seq(0,5,1))+
+  geom_area(fill="#8618B5",alpha=0.7) +
+  theme_minimal()
+```
+
+### Featuring 4 artists
+
+```{r,warning=FALSE, message=FALSE}
+# summary(lm(percentage~as.numeric(year),line_df %>% filter(artist_number==5))) # not enough data to assess relationship (not significant)
+
+fig5<-ggplot(line_df%>% filter(artist_number==5) ,aes(x=as.numeric(year),y=percentage))+
+  geom_point(colour="#4C0099",shape=18,size=2)+
+  scale_x_discrete(breaks=c(1958,2021))+
+  geom_smooth(method=lm,se=TRUE,colour=6,size=2,alpha=0.1) +
+  theme_minimal() +
+  labs(x="Year",y="Percentage of Songs (%)", title="Billboard Top100 Hits: Featuring 4 Artists") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(fig5)
+
+
+```
+
+
+```{r,warning=FALSE, message=FALSE}
+
+ggplot(data=line_df %>% filter(artist_number==5), aes(x=year,y=percentage,group=1))+
+  geom_line(colour="#4C0099",size=2)+
+  scale_x_discrete(name="Year",breaks=seq(1958,2021,3))+
+  scale_y_continuous(name="Percentage of Songs (%)",breaks=seq(0,5,1))+
+  geom_area(fill="#4C0099",alpha=0.5)
+```
+
+### Featuring 5 or more artists
+
+```{r,warning=FALSE, message=FALSE}
+# summary(lm(percentage~as.numeric(year),line_df %>% filter(artist_number=='6'))) # not enough data to assess relationship (not significant)
+
+fig6<-ggplot(line_df %>% filter(artist_number==6) ,aes(x=as.numeric(year),y=percentage))+
+  geom_point(colour="#0000CC",size=2,shape=18)+
+  scale_x_discrete(breaks=c(1958,2021))+
+  geom_smooth(method=lm,se=TRUE,colour=6,size=2,alpha=0.1) + theme_minimal() +
+  labs(x="Year",y="Percentage of Songs (%)", title="Billboard Top100 Hits: Featuring 5 or More Artists") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+ggplotly(fig6)
+
+```
+
+```{r,warning=FALSE, message=FALSE}
+
+ggplot(data=line_df %>% filter(artist_number==6), aes(x=year,y=percentage,group=1))+
+  geom_line(colour="#0000CC",size=2)+
+  scale_x_discrete(name="Year",breaks=seq(1958,2021,3))+
+  scale_y_continuous(name="Percentage of Songs (%)",breaks=seq(0,1,0.1))+
+  geom_area(fill="#0000CC",alpha=0.5)+
+  theme_minimal()
+       
+```
+
+## Trend per Decade {.tabset}
+
+* Percentage of Top 100 Hits that were sung by one artist vs. multiple artists
+* removed duplicate songs for accurate percentage (i.e., )
+
+### 2020s
+```{r,warning=FALSE, message=FALSE}
+pie_df<-bb_df_cleaned %>% filter(year<='2021' & year > '2019') %>% distinct(song, .keep_all=TRUE) %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 2020s")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 2010s
+
+```{r,warning=FALSE, message=FALSE}
+# 2010s
+pie_df<-bb_df_cleaned %>% filter(year<='2019' & year > '2009') %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 2010s")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 2000s
+```{r,warning=FALSE, message=FALSE}
+pie_df<-bb_df_cleaned %>% filter(year<='2009' & year > '1999') %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 2000s")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 1990s
+```{r,warning=FALSE, message=FALSE}
+pie_df<-bb_df_cleaned %>% filter(year<='1999' & year > '1989') %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 1990s")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 1980s
+```{r,warning=FALSE, message=FALSE}
+pie_df<-bb_df_cleaned %>% filter(year<='1989' & year > '1979') %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 1980s")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 1970s
+```{r,warning=FALSE, message=FALSE}
+pie_df<-bb_df_cleaned %>% filter(year<='1979' & year > '1969') %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 1970s")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 1960s
+```{r,warning=FALSE, message=FALSE}
+pie_df<-bb_df_cleaned %>% filter(year<='1969' & year > '1959') %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 1960s")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+### 1950s
+```{r,warning=FALSE, message=FALSE}
+
+pie_df<-bb_df_cleaned %>% filter(year<='1959' & year > '1949') %>% 
+  group_by(artist_number) %>%
+  count() %>% 
+  ungroup() %>%
+  mutate(perc=`n`/sum(`n`)) %>% 
+  arrange(perc) %>% mutate(percentage = scales::percent(perc))
+
+
+ggplot(pie_df, aes(x = "" , y = perc, fill = factor(artist_number))) +
+  geom_col(width = 2) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(data = pie_df,
+                   aes(label = percentage),
+                   size = 5, nudge_x = 0, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Number of Artists")) +theme_void() +
+  labs(title="Billboard Top100 Hit Collaboration Trend in 1950s")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+# Does working alone vs. together predict the song's popularity Billboard? 
+
+```{r,message=FALSE,warning=FALSE}
+summary(lm(peak.rank~artist_number,data=bb_df_cleaned))
+
+ggplot(data=bb_df_cleaned ,aes(x=artist_number,y=peak.rank))+
+  geom_point(colour="#006600",alpha=0.1,size=0.5,shape=3)+
+  geom_smooth(method=lm,colour="#66CC00",size=2,se=TRUE) + 
+  scale_x_discrete(limits=c(seq(1,6,1))) +
+  scale_y_discrete(limits=c(seq(0,100,10))) + theme_bw()+
+  labs(x="Number of Collaborators", y="Peak Rank on Billboard Top 100", title="More Collaborations Predict Higher Peak Rank on Billboard") +
+  theme(plot.title = element_text(hjust = 0.5,size=15))
+
+```
+
+```{r,message=FALSE,warning=FALSE}
+summary(lm(weeks.on.board~artist_number,data=bb_df_cleaned))
+
+ggplot(data=bb_df_cleaned ,aes(x=artist_number,y=weeks.on.board))+
+  geom_point(colour="#4C0099",alpha=0.1,size=0.5,shape=3)+
+  geom_smooth(method=lm,colour="#E224D5",size=2,se=TRUE) + 
+  scale_x_discrete(limits=c(seq(1,6,1))) +
+  scale_y_discrete(limits=c(seq(0,100,10)))+ ylim(c(0,60))+theme_bw()+
+  labs(x="Number of Collaborators", y="Number of Weeks on Billboard Top 100", title="More Collaborations Predict Weeks on Billboard") +
+  theme(plot.title = element_text(hjust = 0.5,size=15))
+
+```
+
+
+# Who's hitting the chart? (wordcloud)
+```{r}
+
+```
+
+
+# Who collaborates with whom? (network visNetwork)
+```{r}
+```
+
+# Next steps
+* Other indicators of hit songs 
+* international collaborations
+* international trend
+* figure out why -- more collabs = more capitals and promotion; song ratings
